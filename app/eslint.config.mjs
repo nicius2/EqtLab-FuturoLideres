@@ -13,6 +13,8 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
+  // Testes de API leem JSON de resposta sem tipo: `any` ali é prático e não vai para produção.
+  { files: ["tests/**/*.ts"], rules: { "@typescript-eslint/no-explicit-any": "off" } },
 ]);
 
 export default eslintConfig;

@@ -44,6 +44,43 @@ Tema claro/escuro (paleta Equatorial), mobile-first (navegação inferior no cel
 - `Recursos.tsx`: um bloco para cada recurso (IA integrada, reuniões da área, comunidade por área, rede de equipes, sala de jogos e avatar), cada um com uma prévia animada. A comunidade reaproveita os escudos reais da Comunidade; o avatar carrega a biblioteca de desenho só quando aparece na tela.
 - As animações ao rolar usam o `Revelar` (`components/animacoes.tsx`) e respeitam “reduzir movimento”.
 
+## Testes
+
+| Comando | O que roda | Precisa de |
+|---|---|---|
+| `pnpm test` | **Testes unitários** (Vitest, ~1 s): salas (`calcularFase`), validações Zod, senha (scrypt), avatar, limites de HTTP, avaliador simulado e a documentação da API. Ficam ao lado do código, em `src/**/*.test.ts`. | nada |
+| `pnpm test:api` | **Testes de API** (34 testes, ~30 s): cadastro em etapas, login e sessão, limite de tentativas, diagnóstico, avatar, fórum e uma **sala de jogo completa** (lobby → perguntas → ranking) com 4 contas. Ficam em `tests/api/`. | o app rodando e o Postgres dele |
+| `pnpm typecheck` | `next typegen` + `tsc --noEmit` | nada |
+| `pnpm lint` | ESLint | nada |
+
+**Rodando os testes de API na sua máquina.** Eles criam e apagam contas (todas `ci-…@example.test`), por isso **recusam rodar contra banco que não seja local**. Use um banco descartável e passe a mesma `DATABASE_URL` ao app e aos testes:
+
+```bash
+docker exec futuro-lideres-db psql -U futuro -d postgres -c "CREATE DATABASE teste"   # senha: futuro_dev
+export DATABASE_URL=postgresql://futuro:futuro_dev@localhost:5434/teste JWT_SECRET=$(openssl rand -base64 48)
+pnpm db:migrate && pnpm build && pnpm start &        # o app, na porta 3000
+pnpm test:api                                         # API_URL=http://localhost:3000 por padrão
+```
+
+Cuidado: se o seu `.env.local` aponta para o Railway, **exporte `DATABASE_URL` como acima** (a variável do terminal vence o arquivo). Mesmo assim, os testes só aceitam banco local (`API_TEST_ALLOW_REMOTE=1` desliga a trava; não use em produção).
+
+## CI (GitHub Actions)
+
+`.github/workflows/ci.yml` roda em todo pull request, em push na `main` e manualmente (aba **Actions**). Dois jobs em paralelo:
+
+1. **Lint, tipos, testes unitários e build:** `pnpm lint` → `pnpm typecheck` → `pnpm test` → checagem de migrações → `pnpm build`.
+2. **Testes de API (com Postgres):** sobe um Postgres 16 como serviço, aplica as migrações, faz o build, inicia o app e roda `pnpm test:api`. O log do app aparece se algo falhar.
+
+A **checagem de migrações** garante que `src/lib/db/schema.ts` e a pasta `drizzle/` andam juntos: se alguém muda o schema e esquece `pnpm db:generate`, o CI falha e diz o que fazer. Uma execução nova na mesma branch cancela a anterior. Para exigir o CI antes do merge, ative em GitHub → Settings → Branches → *Require status checks* e marque os dois jobs.
+
+## Documentação da API (Swagger)
+
+- **Swagger UI:** `/docs` (por exemplo `http://localhost:3000/docs`), com *Try it out*. Ele usa o cookie de quem está logado no site.
+- **Especificação:** `/api/openapi.json` (OpenAPI 3.1), para importar no Postman, Insomnia ou gerar clientes.
+- Está em `src/lib/openapi.ts`. Os **corpos de entrada vêm dos mesmos schemas Zod** que o servidor usa para validar, então não saem de sincronia. Caminhos e respostas são escritos à mão.
+- **Rota nova?** Documente-a em `src/lib/openapi.ts`. O teste `src/lib/openapi.test.ts` **falha** se existir um `route.ts` sem documentação, ou documentação de uma rota que não existe mais.
+- A página `/docs` é pública (como o resto da API, que se protege por sessão). Para escondê-la em produção, remova `src/app/docs/`.
+
 ## Arquitetura
 
 ```
