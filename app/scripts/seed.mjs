@@ -63,6 +63,11 @@ function contasDesejadas() {
     return [{ email, senha, nome: process.env.SEED_ADMIN_NAME?.trim() || "Administrador", papel: "admin", cargo: "Administrador", setor: "Plataforma", avatar: AVATARES.masculino }];
   }
   if (promover !== undefined) return [];
+  // As contas de teste têm senha pública: só podem existir num banco da sua máquina.
+  const host = (() => { try { return new URL(process.env.DATABASE_URL).hostname; } catch { return ""; } })();
+  if (!["localhost", "127.0.0.1", "::1", "[::1]", "db", "postgres"].includes(host) && !args.includes("--forcar-teste")) {
+    falhar(`O banco (${host || "?"}) não parece local: não vou criar contas de teste com senha pública nele. Use SEED_ADMIN_EMAIL e SEED_ADMIN_PASSWORD, ou --forcar-teste se tiver certeza.`);
+  }
   if (producao) {
     falhar("Em produção informe SEED_ADMIN_EMAIL e SEED_ADMIN_PASSWORD (ou use --promover). As contas de teste não são criadas aqui.");
   }

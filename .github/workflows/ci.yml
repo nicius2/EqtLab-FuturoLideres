@@ -1,0 +1,136 @@
+name: CI
+
+# Roda a cada pull request, a cada push na main e, se quiser, na mão (aba Actions → CI → Run workflow).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Um push novo cancela a execução anterior da mesma branch (economiza minutos).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+  CI: "true"
+
+defaults:
+  run:
+    working-directory: app # o projeto fica na subpasta app/
+
+jobs:
+  # ───────────────────────────────────────────────────────────────
+  # 1) Qualidade: lint, tipos, testes unitários, migrações em dia e build
+  # ───────────────────────────────────────────────────────────────
+  qualidade:
+    name: Lint, tipos, testes unitários e build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+
+      - name: Instalar dependências
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint (ESLint)
+        run: pnpm lint
+
+      - name: Tipos (TypeScript)
+        run: pnpm typecheck
+
+      - name: Testes unitários
+        run: pnpm test
+
+      # O schema (src/lib/db/schema.ts) é a fonte da verdade: se alguém mudar o schema e esquecer
+      # de gerar a migração, este passo falha mostrando o que faltou.
+      - name: Migrações consistentes com o schema
+        run: |
+          pnpm db:check
+          DATABASE_URL=postgresql://ci:ci@localhost:5432/ci pnpm db:generate
+          if [ -n "$(git status --porcelain -- drizzle)" ]; then
+            echo "::error::O schema mudou, mas falta a migração. Rode 'pnpm db:generate' e faça commit da pasta app/drizzle."
+            git status --porcelain -- drizzle
+            exit 1
+          fi
+
+      - name: Build de produção
+        run: pnpm build
+
+  # ───────────────────────────────────────────────────────────────
+  # 2) API: sobe o app com um Postgres de verdade e roda os testes de ponta a ponta
+  # ───────────────────────────────────────────────────────────────
+  api:
+    name: Testes de API (com Postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+      JWT_SECRET: segredo-so-para-o-ci-nao-usar-em-producao-0123456789
+      IA_PROVEDOR: simulado # sem chamadas a IA externa
+      API_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+
+      - name: Instalar dependências
+        run: pnpm install --frozen-lockfile
+
+      - name: Aplicar as migrações no banco do CI
+        run: pnpm db:migrate
+
+      - name: Build de produção
+        run: pnpm build
+
+      - name: Subir o app
+        run: |
+          nohup pnpm start > ../next.log 2>&1 &
+          for i in $(seq 1 40); do
+            if curl -sf http://localhost:3000/api/areas > /dev/null; then echo "app no ar"; exit 0; fi
+            sleep 1
+          done
+          echo "::error::O app não subiu em 40 s"; cat ../next.log; exit 1
+
+      - name: Testes de API
+        run: pnpm test:api
+
+      - name: Log do app (só se algo falhou)
+        if: failure()
+        run: cat ../next.log || true

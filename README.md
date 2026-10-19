@@ -8,6 +8,12 @@ Desafio 6 do Hackathon Equatorial — plataforma de desenvolvimento para lídere
 | [`docker-compose.yml`](docker-compose.yml) | Banco PostgreSQL local (imagem Bitnami). |
 | [`prompt-futuros-lideres.md`](prompt-futuros-lideres.md) | Especificação do produto. |
 
+## Qualidade e documentação
+
+- **CI:** [`.github/workflows/ci.yml`](.github/workflows/ci.yml) roda lint, tipos, testes unitários, testes de API (com Postgres) e build em todo pull request.
+- **Testes:** `pnpm test` (unitários) e `pnpm test:api` (API, contra banco local). Detalhes no [README do app](app/README.md#testes).
+- **Documentação da API:** Swagger em `/docs` e a especificação OpenAPI em `/api/openapi.json`.
+
 ## Banco de dados (PostgreSQL)
 
 ```bash
